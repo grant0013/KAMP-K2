@@ -6,7 +6,7 @@ A fork of [kyleisah/Klipper-Adaptive-Meshing-Purging](https://github.com/kyleisa
 
 ## What's different from upstream KAMP
 
-Creality's K2 firmware does two things that break upstream KAMP out of the box:
+Creality's K2 firmware does two things that break upstream KAMP out of the box (on the `CR0CN200400C10` board — K2, K2 Combo, K2 Pro). K2 Plus has a half-implemented Creality adaptive mesh on a different board but users report it's unreliable; this fork replaces that too.
 
 1. **`prtouch_v3_wrapper.so` hijacks `BED_MESH_CALIBRATE`** with a non-adaptive implementation that ignores `MESH_MIN` / `MESH_MAX` / `PROBE_COUNT` and crashes with `IndexError` when those are passed. KAMP relies on the upstream Klipper handler being present, so KAMP calls fail silently or blow up.
 2. **`master-server` daemon independently fires `G29` and `BED_MESH_CALIBRATE_START_PRINT`** during print prep, outside of any slicer start-gcode. Those fire before KAMP can run and triggers a stock full-bed mesh every time.
@@ -34,13 +34,19 @@ See [`docs/INSTALL_K2.md`](docs/INSTALL_K2.md) for the step-by-step the installe
 
 ## Compatibility
 
-| Printer | Status | Notes |
-|---|---|---|
-| K2 (260 mm) | **Confirmed** | tested on firmware `V1.1.4.1`, Klipper `09faed31-dirty` |
-| K2 Plus (350 mm) | **Confirmed** | same firmware family |
-| K1 / K1C / K1 Max | Should work | same `prtouch_v3_wrapper` + master-server architecture; untested — please report |
-| K1 SE | Unknown | wrapper name is different (`prtouch_v2`); minor path change in installer probably needed |
-| Any non-Creality Klipper printer | **Don't use this fork** | use upstream KAMP directly — you don't have a wrapper to bypass |
+Two different boards in the K2 family behave differently:
+
+| Printer | Board | Stock adaptive mesh? | KAMP-K2 needed? |
+|---|---|---|---|
+| **K2 / K2 Combo / K2 Pro** | `CR0CN200400C10` (F021) | **No** (no `forced_leveling` toggle in printer.cfg, wrapper doesn't support adaptive bounds) | **Yes — this is the only option** |
+| **K2 Plus** | `CR0CN240319C13` (F008) | Yes, but **off by default** and forum-reported unreliable | Optional alternative; more maintainable than Creality's flaky toggle |
+| K1 / K1C / K1 Max | CR4CU220812S* | No | Should work (same `prtouch_v3_wrapper` + master-server architecture); untested — please file an issue if you try it |
+| K1 SE | CR4CU220812S12 | No | Unknown (wrapper may be `prtouch_v2`; minor path change in installer probably needed) |
+| Non-Creality Klipper printer | — | — | **Don't use this fork** — use [upstream KAMP](https://github.com/kyleisah/Klipper-Adaptive-Meshing-Purging) directly; you don't have a wrapper to bypass |
+
+**Adaptive line purging (`LINE_PURGE`) is *not* available in any Creality K-series stock firmware.** Even K2 Plus owners with Creality's built-in adaptive mesh working get no purge-line adaptation out of the box. KAMP-K2 brings both features on every variant it supports.
+
+Tested on my K2 Combo (`CR0CN200400C10`, firmware `V1.1.4.1`, Klipper `09faed31-dirty`).
 
 ## Slicer setup
 
@@ -55,9 +61,9 @@ M204 S2000
 M83
 ```
 
-**Print Settings → Others → Bed mesh**:
+**Print Settings → Others → Bed mesh** (match your `[bed_mesh]` section in printer.cfg):
 - Bed mesh min: `5, 5`
-- Bed mesh max: `255, 255` (or `345, 345` on K2 Plus)
+- Bed mesh max: `255, 255` on K2/K2 Combo (260³), or `345, 345` on K2 Plus (350³) — read the `mesh_max:` line in your printer.cfg to be sure
 - Probe point distance: `50, 50`
 - Mesh margin: `5`
 
