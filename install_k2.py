@@ -124,7 +124,6 @@ class Installer:
         self.dry_run = dry_run
         self.verbose = verbose
         self.ssh: paramiko.SSHClient | None = None
-        self.sftp: paramiko.SFTPClient | None = None
         self.changes_made: list[str] = []
 
     # ---- low-level ----
@@ -149,12 +148,12 @@ class Installer:
         except (socket.timeout, socket.error) as e:
             self.log(f"Cannot reach {self.host}: {e}", "err")
             sys.exit(1)
-        self.sftp = self.ssh.open_sftp()
+        # NOTE: K2 runs dropbear, which does NOT support the SFTP subsystem.
+        # All file I/O has to go through exec_command + base64 shell pipes.
+        # (Attempting ssh.open_sftp() here would raise EOFError.)
         self.log(f"Connected.", "ok")
 
     def close(self) -> None:
-        if self.sftp:
-            self.sftp.close()
         if self.ssh:
             self.ssh.close()
 
@@ -173,30 +172,46 @@ class Installer:
         return rc, out, err
 
     def remote_exists(self, path: str) -> bool:
-        assert self.sftp is not None
-        try:
-            self.sftp.stat(path)
-            return True
-        except FileNotFoundError:
-            return False
+        _, out, _ = self.run(f"test -e '{path}' && echo YES || echo NO")
+        return "YES" in out
 
     def read_remote(self, path: str) -> str:
-        assert self.sftp is not None
-        with self.sftp.open(path, "r") as f:
-            return f.read().decode("utf-8", errors="replace")
+        # Read file via `cat` over exec_command. K2 busybox doesn't have
+        # base64, so we stream raw bytes back through the SSH channel.
+        assert self.ssh is not None
+        stdin, stdout, stderr = self.ssh.exec_command(f"cat '{path}'")
+        data = stdout.read()
+        err = stderr.read().decode("utf-8", errors="replace")
+        rc = stdout.channel.recv_exit_status()
+        if rc != 0:
+            raise FileNotFoundError(
+                f"read_remote {path} failed: {err.strip()}")
+        return data.decode("utf-8", errors="replace")
 
     def write_remote(self, path: str, content: str, mode: int = 0o644) -> None:
         if self.dry_run:
             self.log(f"[dry-run] would write {path} "
                      f"({len(content)} bytes)", "dry")
             return
-        assert self.sftp is not None
+        assert self.ssh is not None
         parent = posixpath.dirname(path)
         if parent:
             self.run(f"mkdir -p '{parent}'")
-        with self.sftp.open(path, "w") as f:
-            f.write(content)
-        self.sftp.chmod(path, mode)
+        octal_mode = oct(mode)[2:]
+        raw = content.encode() if isinstance(content, str) else content
+        # Pipe content through `cat > file` via exec_command stdin.
+        # Binary-safe, no shell quoting concerns, works on dropbear which
+        # doesn't have an SFTP server. K2 busybox also lacks base64/uuencode
+        # so this is the portable path.
+        stdin, stdout, stderr = self.ssh.exec_command(
+            f"cat > '{path}' && chmod {octal_mode} '{path}'")
+        stdin.write(raw)
+        stdin.channel.shutdown_write()
+        err = stderr.read().decode("utf-8", errors="replace")
+        rc = stdout.channel.recv_exit_status()
+        if rc != 0:
+            self.log(f"write_remote {path} failed: {err.strip()}", "err")
+            raise RuntimeError(f"write_remote failed for {path}")
 
     def copy_file(self, local: str, remote: str, mode: int = 0o644) -> None:
         with open(local, "rb") as f:
