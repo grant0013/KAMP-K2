@@ -164,6 +164,10 @@ If you want adaptive meshing to run fewer probe points on small parts (faster me
 - [`docs/how-it-works.md`](docs/how-it-works.md) — the full hijack stack and why each piece is needed
 - [`docs/tuning.md`](docs/tuning.md) — optional `probe_count` tuning and `MESH=0` skip-mesh flag
 
+## Companion project
+
+[**K2-Screws-Tilt**](https://github.com/grant0013/K2-Screws-Tilt) — brings Klipper's `SCREWS_TILT_CALCULATE` helper to the K2 family. Uses your existing strain-gauge probe to tell you "front-left: turn 1/4 CW" for manual bed-screw levelling. Same one-click Windows installer, same backup/revert UX. Confirmed on K2 Combo.
+
 ## Credits
 
 Built on top of:
