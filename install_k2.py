@@ -416,10 +416,16 @@ class Installer:
     def backup_configs(self) -> None:
         # Prefer SSD if available (firmware-update survivable)
         ts = time.strftime("%Y%m%d_%H%M%S")
+        # Use the same `kamp_k2_backup_<ts>` name on both paths. Earlier
+        # revisions of this script used `kamp_k2_<ts>` (no "backup_" infix)
+        # on the UDISK path, so on SSD-less K2 Plus printers backups created
+        # by older installer versions are invisible to the `kamp_k2_backup_*`
+        # glob that find_*_backup() uses. find_* now matches `kamp_k2_*`
+        # (legacy-aware), but ALL NEW backups use the unified name.
         if "yes" in self.run("test -d /mnt/exUDISK && echo yes")[1]:
             base = f"/mnt/exUDISK/.system/kamp_k2_backup_{ts}"
         else:
-            base = f"/mnt/UDISK/printer_data/config/backups/kamp_k2_{ts}"
+            base = f"/mnt/UDISK/printer_data/config/backups/kamp_k2_backup_{ts}"
         self.log(f"Backing up current configs to {base}/", "step")
         if self.dry_run:
             self.log(f"[dry-run] would create {base} and copy configs", "dry")
@@ -818,20 +824,32 @@ class Installer:
             self.log(f"log tail:\n{out}", "warn")
 
     # ---- revert ----
+    def _list_backup_dirs(self, base: str) -> list[str]:
+        """List all backup dirs in `base`, newest first. Matches both
+        the current `kamp_k2_backup_<ts>` and legacy `kamp_k2_<ts>`
+        naming (older installer versions used the latter on UDISK-only
+        printers -- see backup_configs for the history).
+
+        Uses busybox-compatible commands: no -printf (not supported on
+        K2 busybox find), no bash arrays. Two `ls -1dt` globs piped
+        together give newest-first ordering by mtime; `awk '!seen[$0]++'
+        ` deduplicates without changing order if the two globs
+        somehow overlap.
+        """
+        rc, out, _ = self.run(
+            f"(ls -1dt '{base}'/kamp_k2_backup_* 2>/dev/null; "
+            f" ls -1dt '{base}'/kamp_k2_[0-9]* 2>/dev/null) "
+            "| awk '!seen[$0]++'"
+        )
+        return [p.strip() for p in out.splitlines() if p.strip()]
+
     def find_latest_backup(self) -> str | None:
-        """Return the path to the latest kamp_k2_backup_* dir on the printer,
-        preferring /mnt/exUDISK (firmware-update-survivable) over UDISK."""
-        candidates = [
-            "/mnt/exUDISK/.system",
-            "/mnt/UDISK/printer_data/config/backups",
-        ]
-        for base in candidates:
-            rc, out, _ = self.run(
-                f"ls -1dt '{base}'/kamp_k2_backup_* 2>/dev/null | head -1"
-            )
-            path = out.strip()
-            if path:
-                return path
+        """Return the path to the latest backup dir, preferring SSD."""
+        for base in ["/mnt/exUDISK/.system",
+                     "/mnt/UDISK/printer_data/config/backups"]:
+            dirs = self._list_backup_dirs(base)
+            if dirs:
+                return dirs[0]
         return None
 
     def find_cleanest_backup(self) -> str | None:
@@ -848,15 +866,11 @@ class Installer:
         candidates = []
         for base in ["/mnt/exUDISK/.system",
                      "/mnt/UDISK/printer_data/config/backups"]:
-            rc, out, _ = self.run(
-                f"ls -1d '{base}'/kamp_k2_backup_* 2>/dev/null")
-            for path in out.strip().splitlines():
-                path = path.strip()
-                if path:
-                    candidates.append(path)
+            candidates.extend(self._list_backup_dirs(base))
         if not candidates:
             return None
-        # Sort oldest first (timestamp is lexicographically sortable)
+        # _list_backup_dirs returns newest first; sort oldest first for
+        # the cleanest-baseline scan.
         candidates.sort()
         for path in candidates:
             pcfg_path = f"{path}/printer.cfg"
