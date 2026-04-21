@@ -1,6 +1,6 @@
-# KAMP-K2 one-shot PowerShell installer.
+﻿# KAMP-K2 one-shot PowerShell installer.
 #
-# For non-technical users — downloads the repo, checks Python + paramiko,
+# For non-technical users -- downloads the repo, checks Python + paramiko,
 # prompts for printer IP, detects existing install, runs installer/revert.
 # No manual SSH needed.
 #
@@ -25,7 +25,12 @@ param(
     [switch]$DryRun
 )
 
-$ErrorActionPreference = "Stop"
+# NOTE: we intentionally do NOT set `$ErrorActionPreference = "Stop"` globally.
+# Windows PowerShell 5.1 raises NativeCommandError for ANY stderr output from
+# a native exe when that preference is Stop -- which breaks perfectly normal
+# Python probe calls (e.g. `python -c "import paramiko"` before paramiko is
+# installed, which correctly writes a traceback to stderr). We use
+# -ErrorAction Stop per-cmdlet where we genuinely want hard failure.
 $InstallDir   = Join-Path $env:USERPROFILE "KAMP-K2"
 $BackupDir    = Join-Path $env:USERPROFILE "KAMP-K2\backups"
 $RepoZipUrl   = "https://github.com/grant0013/KAMP-K2/archive/refs/heads/main.zip"
@@ -38,8 +43,12 @@ function Write-Err($msg)  { Write-Host "[x] $msg" -ForegroundColor Red }
 function Test-Python {
     foreach ($cmd in @("python", "py")) {
         try {
-            $out = & $cmd --version 2>&1
-            if ($out -match "Python\s+3\.") { return $cmd }
+            # 2>$null: some Python launchers write version to stderr; we don't
+            # want PowerShell's native-stderr handling getting involved.
+            $out = & $cmd --version 2>$null
+            if ($LASTEXITCODE -eq 0 -and $out -match "Python\s+3\.") {
+                return $cmd
+            }
         } catch { continue }
     }
     return $null
@@ -65,25 +74,41 @@ function Ensure-Python {
 
 function Ensure-Paramiko($py) {
     Write-Step "Checking paramiko..."
-    $check = & $py -c "import paramiko; print(paramiko.__version__)" 2>&1
+    # 2>$null: paramiko-not-installed writes a traceback to stderr; we expect
+    # that on first run and only care about $LASTEXITCODE. Without 2>$null,
+    # Windows PowerShell 5.1 with ErrorActionPreference=Stop would raise a
+    # NativeCommandError on the stderr output and kill the script.
+    $check = & $py -c "import paramiko; print(paramiko.__version__)" 2>$null
     if ($LASTEXITCODE -eq 0) {
         Write-Ok "paramiko present (version $check)"
         return
     }
     Write-Step "Installing paramiko (pip install --user)..."
-    & $py -m pip install --user --quiet paramiko
+    & $py -m pip install --user --quiet paramiko 2>&1 | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Write-Err "pip install paramiko failed. Try manually:"
-        Write-Err "  $py -m pip install paramiko"
+        Write-Err "  $py -m pip install --user paramiko"
+        Write-Host ""
+        Write-Host "If you are on a very new Python release (3.14+) and pip" -ForegroundColor Yellow
+        Write-Host "complains about wheels, also try:" -ForegroundColor Yellow
+        Write-Host "  $py -m pip install --user --upgrade pip setuptools wheel" -ForegroundColor Yellow
+        Write-Host "  $py -m pip install --user paramiko" -ForegroundColor Yellow
         exit 1
     }
-    Write-Ok "paramiko installed"
+    # Verify install actually worked (pip sometimes exits 0 on a no-op)
+    $verify = & $py -c "import paramiko; print(paramiko.__version__)" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "paramiko installed but cannot be imported -- Python env "
+        Write-Err "issue. Try running in a fresh PowerShell session."
+        exit 1
+    }
+    Write-Ok "paramiko installed (version $verify)"
 }
 
 function Download-Repo {
     Write-Step "Downloading KAMP-K2 from GitHub..."
     $tmpZip = Join-Path $env:TEMP "KAMP-K2-main.zip"
-    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $tmpZip -UseBasicParsing
+    Invoke-WebRequest -Uri $RepoZipUrl -OutFile $tmpZip -UseBasicParsing -ErrorAction Stop
 
     if (Test-Path $InstallDir) {
         Write-Step "Removing previous install at $InstallDir..."
@@ -92,24 +117,24 @@ function Download-Repo {
         if (Test-Path $BackupDir) {
             $preservedBackups = Join-Path $env:TEMP "KAMP-K2-backups-preserve"
             if (Test-Path $preservedBackups) {
-                Remove-Item -Recurse -Force $preservedBackups
+                Remove-Item -Recurse -Force $preservedBackups -ErrorAction Stop
             }
-            Move-Item $BackupDir $preservedBackups
+            Move-Item $BackupDir $preservedBackups -ErrorAction Stop
         }
-        Remove-Item -Recurse -Force $InstallDir
+        Remove-Item -Recurse -Force $InstallDir -ErrorAction Stop
         if ($preservedBackups) {
-            New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
-            Move-Item (Join-Path $preservedBackups "*") $BackupDir
-            Remove-Item -Recurse -Force $preservedBackups
+            New-Item -ItemType Directory -Path $BackupDir -Force -ErrorAction Stop | Out-Null
+            Move-Item (Join-Path $preservedBackups "*") $BackupDir -ErrorAction Stop
+            Remove-Item -Recurse -Force $preservedBackups -ErrorAction Stop
         }
     }
     Write-Step "Extracting to $InstallDir..."
     $tmpExtract = Join-Path $env:TEMP "KAMP-K2-extract"
-    if (Test-Path $tmpExtract) { Remove-Item -Recurse -Force $tmpExtract }
-    Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract
+    if (Test-Path $tmpExtract) { Remove-Item -Recurse -Force $tmpExtract -ErrorAction Stop }
+    Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -ErrorAction Stop
     $inner = Get-ChildItem -Path $tmpExtract | Where-Object { $_.PSIsContainer } | Select-Object -First 1
-    Move-Item $inner.FullName $InstallDir
-    Remove-Item -Recurse -Force $tmpExtract, $tmpZip
+    Move-Item $inner.FullName $InstallDir -ErrorAction Stop
+    Remove-Item -Recurse -Force $tmpExtract, $tmpZip -ErrorAction SilentlyContinue
     Write-Ok "Repo ready at $InstallDir"
 }
 
