@@ -21,8 +21,20 @@ Upstream KAMP's `Adaptive_Meshing.cfg`, `Line_Purge.cfg`, and `KAMP_Settings.cfg
 
 ## Quick start
 
+### Windows (one-liner, no git needed)
+
+Open **PowerShell** (not cmd.exe) and paste:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/grant0013/KAMP-K2/main/install.ps1 | iex
+```
+
+The script checks for Python (prompts to install if missing), downloads the repo, installs `paramiko`, asks for your printer's IP, and runs the installer. No manual SSH required.
+
+### macOS / Linux / manual
+
 ```sh
-git clone https://github.com/YOUR-USER/KAMP-K2
+git clone https://github.com/grant0013/KAMP-K2
 cd KAMP-K2
 pip install paramiko
 python install_k2.py --host 192.168.x.x
