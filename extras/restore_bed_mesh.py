@@ -85,37 +85,68 @@ class BedMeshOverride:
                 type(bmc).__name__)
 
             # KAMP detection: if a gcode_macro named BED_MESH_CALIBRATE is
-            # registered, KAMP's wrapper is installed. KAMP-K2's installer
-            # rewrites KAMP's rename_existing target to `_BMC_KAMP_INNER`
-            # (avoids colliding with Creality's pre-registered
-            # `_BED_MESH_CALIBRATE` on some firmware variants). Fall back to
-            # the stock name for people who installed the cfg by hand.
+            # registered, KAMP's wrapper is installed.
+            #
+            # KAMP uses `rename_existing:` to stash the previous handler
+            # under a new name it then calls internally. Two possible
+            # names are in play depending on how the user's KAMP cfg was
+            # produced:
+            #   * `_BMC_KAMP_INNER` -- KAMP-K2's installer rewrites KAMP's
+            #     Adaptive_Meshing.cfg to use this unique name, to avoid
+            #     colliding with Creality's pre-registered
+            #     `_BED_MESH_CALIBRATE` on some firmware variants.
+            #   * `_BED_MESH_CALIBRATE` -- upstream KAMP's stock default,
+            #     used by anyone who installed KAMP configs by hand.
+            #
+            # Previous code tried to detect which one was active by
+            # inspecting `gcode.base_gcode_handlers`, but Creality's
+            # Klipper fork on K2 Plus (F008) doesn't expose that name
+            # the same way -- detection returned "_BMC_KAMP_INNER not
+            # found" even though KAMP's macro clearly called it, so our
+            # guard was installed on the wrong handler and KAMP's real
+            # calls sailed past it into the wrapper's broken
+            # cmd_BED_MESH_CALIBRATE (IndexError at :1922).
+            #
+            # Fix: skip the fragile detection. Register the guard on
+            # BOTH candidate names. Whichever KAMP uses internally ends
+            # up behind our guard; the unused one is harmless -- it
+            # just means there's also a safe wrapper on a name nothing
+            # calls.
             kamp_macro = self.printer.lookup_object(
                 'gcode_macro BED_MESH_CALIBRATE', None)
             if kamp_macro is not None:
-                all_cmds = set(getattr(gcode, 'ready_gcode_handlers', {}).keys())
-                all_cmds.update(getattr(gcode, 'base_gcode_handlers', {}).keys())
-                if '_BMC_KAMP_INNER' in all_cmds:
-                    target = '_BMC_KAMP_INNER'
-                else:
-                    target = '_BED_MESH_CALIBRATE'
+                targets = ['_BMC_KAMP_INNER', '_BED_MESH_CALIBRATE']
                 mode = 'KAMP'
             else:
-                target = 'BED_MESH_CALIBRATE'
+                targets = ['BED_MESH_CALIBRATE']
                 mode = 'direct'
 
-            try:
-                gcode.register_command(target, None)
-            except Exception:
-                pass
-            gcode.register_command(
-                target,
-                self._guarded_cmd_BED_MESH_CALIBRATE,
-                desc=help_text)
+            registered = []
+            for target in targets:
+                try:
+                    gcode.register_command(target, None)
+                except Exception:
+                    pass
+                try:
+                    gcode.register_command(
+                        target,
+                        self._guarded_cmd_BED_MESH_CALIBRATE,
+                        desc=help_text)
+                    registered.append(target)
+                except Exception as e:
+                    logging.info(
+                        "bed_mesh_override: could not register %s: %s",
+                        target, e)
+            if not registered:
+                logging.error(
+                    "bed_mesh_override: NO handlers registered -- "
+                    "something is very wrong. Targets attempted: %s",
+                    targets)
+                return
             logging.info(
-                "bed_mesh_override: %s re-registered to guarded upstream "
-                "(%s mode; bare calls are no-ops; MESH_MIN/MAX required "
-                "to run)" % (target, mode))
+                "bed_mesh_override: re-registered to guarded upstream "
+                "on %s (%s mode; bare calls are no-ops; MESH_MIN/MAX "
+                "required to run)", ", ".join(registered), mode)
         except Exception:
             logging.exception("bed_mesh_override: failed to override")
 
