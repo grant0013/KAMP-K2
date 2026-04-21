@@ -33,9 +33,15 @@ Write-Host ""
 # Relaunch install.ps1 as a real script so its param() block and
 # [CmdletBinding()] are honoured. Wrap in try/catch so ANY error surfaces
 # to the user -- silent exits were a real reported issue.
+#
+# NOTE: we deliberately do NOT call `exit` here. bootstrap.ps1 is typically
+# run via `iwr | iex`, which evaluates the script in the CURRENT shell scope.
+# A top-level `exit` would close the user's PowerShell window instantly --
+# swallowing any "Done!" or error text they'd need to read. install.ps1
+# handles its own success/failure pause. Returning normally from iex just
+# drops the user back at the PS prompt.
 try {
     & $TargetPath
-    $rc = $LASTEXITCODE
 } catch {
     Write-Host ""
     Write-Host "[x] Installer crashed with an error:" -ForegroundColor Red
@@ -47,6 +53,7 @@ try {
     Write-Host ""
     Write-Host "Paste the above into a GitHub issue:" -ForegroundColor Yellow
     Write-Host "  https://github.com/grant0013/KAMP-K2/issues" -ForegroundColor Yellow
-    exit 1
+    Write-Host ""
+    Write-Host "Press Enter to close." -ForegroundColor Gray
+    $null = Read-Host
 }
-exit $rc

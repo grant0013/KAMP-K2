@@ -337,17 +337,34 @@ if ($detected.Status -eq "installed") {
 }
 
 Write-Host ""
+Write-Host "================================================================" -ForegroundColor Cyan
 if ($rc -eq 0) {
-    Write-Ok "Done!"
+    Write-Ok "KAMP-K2 install complete."
+    Write-Host ""
+    Write-Host "Next step:" -ForegroundColor White
+    Write-Host "  Slice a test print in Orca/Prusa/etc. with 'exclude_object'" -ForegroundColor White
+    Write-Host "  enabled, send it to your printer via Orca (NOT via USB" -ForegroundColor White
+    Write-Host "  drive or touchscreen), and watch the console for the" -ForegroundColor White
+    Write-Host "  'Adapted probe count' line during bed meshing." -ForegroundColor White
     Write-Host ""
     Write-Host "Local backups kept at: $BackupDir" -ForegroundColor Gray
     Write-Host "These survive printer firmware updates. Keep them safe." -ForegroundColor Gray
     Write-Host ""
-    Write-Host "To revert later:" -ForegroundColor Gray
-    Write-Host "  .\install.ps1 -PrinterHost $ip -Revert" -ForegroundColor Gray
+    Write-Host "To revert later, re-run the one-liner and pick option 2," -ForegroundColor Gray
+    Write-Host "or run:  .\install.ps1 -PrinterHost $ip -Revert" -ForegroundColor Gray
 } else {
-    Write-Err "Installer exited with code $rc"
-    Write-Host "Check messages above. Open an issue if stuck:"
-    Write-Host "  https://github.com/grant0013/KAMP-K2/issues"
+    Write-Err "KAMP-K2 install FAILED (exit code $rc)."
+    Write-Host ""
+    Write-Host "Scroll up and read the messages above -- look for any"      -ForegroundColor Yellow
+    Write-Host "line starting with [x] or [!]. If you need help, open an"   -ForegroundColor Yellow
+    Write-Host "issue and paste the full terminal output:"                  -ForegroundColor Yellow
+    Write-Host "  https://github.com/grant0013/KAMP-K2/issues"              -ForegroundColor Yellow
 }
+Write-Host "================================================================" -ForegroundColor Cyan
+Write-Host ""
+# Pause so the user actually sees the result instead of the window
+# closing on them. If a parent shell is piping us to iex, this pause
+# still works -- Read-Host prompts in the current console.
+Write-Host "Press Enter to close this window." -ForegroundColor Gray
+$null = Read-Host
 exit $rc
