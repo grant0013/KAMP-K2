@@ -264,6 +264,83 @@ class Installer:
         cfg = self.read_remote(PRINTER_CFG)
         return re.search(r"^\[exclude_object\]", cfg, re.MULTILINE) is not None
 
+    def check_for_duplicates(self) -> None:
+        """Scan all config files under printer_data/config for things that
+        MUST appear exactly once. Refuse to install if any are doubled.
+
+        Motivation: users retrying an install repeatedly can accumulate
+        duplicate `[include KAMP/...]` lines, duplicate [gcode_macro]
+        sections, or duplicate `rename_existing: _BMC_KAMP_INNER` entries
+        between printer.cfg and the KAMP cfgs. Klipper then halts at
+        config parse with `gcode command _BMC_KAMP_INNER already
+        registered` (key57) before our extras module even loads.
+
+        Rather than trying to deduplicate in place (risky), we bail
+        early and tell the user to --revert first. Revert restores
+        pristine configs from backup, and a fresh install on a clean
+        baseline is duplicate-free."""
+        # Concatenate every cfg file under config/ for one big grep.
+        # Tagged with ### <path> headers so the error message can point
+        # at the offending file.
+        cmd = (
+            "for f in "
+            "/mnt/UDISK/printer_data/config/printer.cfg "
+            "/mnt/UDISK/printer_data/config/gcode_macro.cfg "
+            "/mnt/UDISK/printer_data/config/KAMP/*.cfg "
+            "; do "
+            "[ -f \"$f\" ] && echo \"### FILE: $f\" && cat \"$f\"; "
+            "done"
+        )
+        _, out, _ = self.run(cmd)
+
+        # Pattern -> (display label, "singular" rule).
+        # All expected counts are 1 when KAMP-K2 is cleanly installed.
+        checks = [
+            (r"^\s*\[include\s+KAMP/KAMP_Settings\.cfg\]",
+             "[include KAMP/KAMP_Settings.cfg]"),
+            (r"^\s*\[include\s+Adaptive_Meshing\.cfg\]",
+             "[include Adaptive_Meshing.cfg]"),
+            (r"^\s*\[include\s+Line_Purge\.cfg\]",
+             "[include Line_Purge.cfg]"),
+            (r"^\s*rename_existing\s*:\s*_BMC_KAMP_INNER",
+             "rename_existing: _BMC_KAMP_INNER"),
+            (r"^\[gcode_macro\s+BED_MESH_CALIBRATE\]\s*$",
+             "[gcode_macro BED_MESH_CALIBRATE]"),
+            (r"^\[restore_bed_mesh\]\s*$",
+             "[restore_bed_mesh]"),
+        ]
+
+        dupes = []
+        for pattern, label in checks:
+            matches = re.findall(pattern, out, re.MULTILINE)
+            if len(matches) > 1:
+                dupes.append((label, len(matches)))
+
+        if not dupes:
+            self.log("no duplicate sections / includes found", "ok")
+            return
+
+        self.log("Config duplicates detected -- refusing to install:",
+                 "err")
+        for label, count in dupes:
+            self.log(f"  - {label}: {count} occurrences (expected 1)",
+                     "err")
+        self.log("", "err")
+        self.log("This usually means a previous install attempt left a "
+                 "stale entry behind, often from repeated runs without "
+                 "a clean revert in between.", "err")
+        self.log("", "err")
+        self.log("To fix: run this installer with --revert first to "
+                 "restore the original Creality configs, then re-run "
+                 "the installer. From the PowerShell one-liner, choose "
+                 "option 2 (Revert) when prompted.", "err")
+        self.log("", "err")
+        self.log("If revert fails or the duplicates are older than the "
+                 "oldest backup, you can open an issue with the output "
+                 "of:  grep -rn 'rename_existing\\|_BMC_KAMP_INNER' "
+                 "/mnt/UDISK/printer_data/config/", "err")
+        sys.exit(1)
+
     def is_installed(self) -> bool:
         """Detect whether KAMP-K2 is already installed on the printer.
 
@@ -511,33 +588,46 @@ class Installer:
                  "(was true; restored on revert via backup)", "ok")
 
     def patch_printer_cfg(self) -> None:
+        """Ensure live (un-commented) [restore_bed_mesh] and
+        [include KAMP/KAMP_Settings.cfg] sections exist in printer.cfg.
+
+        Uses regex anchored to start-of-line so commented-out sections
+        (e.g. `# [restore_bed_mesh] ...`) are treated as absent. A prior
+        version used plain substring matching, which wrongly reported
+        "already contains" when only a comment mentioning the section
+        existed. That let the install complete while the module never
+        actually loaded -- the user then hit the wrapper's IndexError
+        because nothing had re-registered BED_MESH_CALIBRATE."""
         cfg = self.read_remote(PRINTER_CFG)
+        has_restore = bool(re.search(
+            r"^\s*\[restore_bed_mesh\]", cfg, re.MULTILINE))
+        has_kamp_include = bool(re.search(
+            r"^\s*\[include\s+KAMP/KAMP_Settings\.cfg\]",
+            cfg, re.MULTILINE))
         changes = False
-        if "[include KAMP/KAMP_Settings.cfg]" not in cfg:
+        if not has_kamp_include:
             # Prefer after [exclude_object] for clean placement
             anchor = "[exclude_object]"
             if anchor in cfg:
-                cfg = cfg.replace(
-                    anchor,
-                    f"{anchor}\n\n[restore_bed_mesh]\n\n"
-                    f"[include KAMP/KAMP_Settings.cfg]",
-                    1,
-                )
+                snippet = f"{anchor}\n\n[restore_bed_mesh]\n\n" \
+                          f"[include KAMP/KAMP_Settings.cfg]"
+                cfg = cfg.replace(anchor, snippet, 1)
                 changes = True
             else:
-                # Fall back to end of file
                 cfg = cfg.rstrip() + PRINTER_CFG_SNIPPET + "\n"
                 changes = True
-        elif "[restore_bed_mesh]" not in cfg:
-            cfg = cfg.replace(
-                "[include KAMP/KAMP_Settings.cfg]",
-                "[restore_bed_mesh]\n\n[include KAMP/KAMP_Settings.cfg]",
-                1,
-            )
+        elif not has_restore:
+            # KAMP include is live but restore_bed_mesh is absent or
+            # commented out -- add a live [restore_bed_mesh] above it.
+            cfg = re.sub(
+                r"(^\s*\[include\s+KAMP/KAMP_Settings\.cfg\])",
+                r"[restore_bed_mesh]\n\n\1",
+                cfg, count=1, flags=re.MULTILINE)
             changes = True
         if changes:
             self.write_remote(PRINTER_CFG, cfg)
-            self.log("printer.cfg: added [restore_bed_mesh] + KAMP include", "ok")
+            self.log("printer.cfg: added/repaired "
+                     "[restore_bed_mesh] + KAMP include", "ok")
         else:
             self.log("printer.cfg: already contains includes, skipping", "ok")
 
@@ -908,6 +998,8 @@ def main() -> None:
             inst.log("[exclude_object] not found in printer.cfg — KAMP "
                      "adaptive meshing needs it. Aborting.", "err")
             sys.exit(1)
+        inst.log("=== Pre-install duplicate scan ===", "step")
+        inst.check_for_duplicates()
 
         inst.log("=== Board detection ===", "step")
         board = inst.detect_board()
