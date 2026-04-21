@@ -1,5 +1,11 @@
 # KAMP-K2
 
+[![Release](https://img.shields.io/github/v/release/grant0013/KAMP-K2?display_name=tag)](https://github.com/grant0013/KAMP-K2/releases)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Klipper compatible](https://img.shields.io/badge/Klipper-compatible-5a9e5a.svg)](https://www.klipper3d.org/)
+[![Tested on K2](https://img.shields.io/badge/tested-K2%20%2B%20K2%20Plus-00a1ff.svg)](#compatibility)
+[![Issues welcome](https://img.shields.io/github/issues/grant0013/KAMP-K2.svg)](https://github.com/grant0013/KAMP-K2/issues)
+
 **KAMP (Klipper Adaptive Meshing & Purging) — Creality K2 fork**
 
 A fork of [kyleisah/Klipper-Adaptive-Meshing-Purging](https://github.com/kyleisah/Klipper-Adaptive-Meshing-Purging) with the small amount of extra glue Creality K2 printers need to make KAMP actually work.

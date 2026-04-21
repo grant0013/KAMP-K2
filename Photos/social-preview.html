@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 1280px; height: 640px;
+    background: #0d1117;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    overflow: hidden;
+  }
+  .card {
+    position: absolute;
+    top: 0; left: 0;
+    width: 1280px; height: 640px;
+    background: linear-gradient(135deg, #0d1117 0%, #1a2332 60%, #0a1a28 100%);
+    color: #e6edf3;
+    overflow: hidden;
+  }
+  .glow1 {
+    position: absolute;
+    top: -200px; right: -200px;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(0, 161, 255, 0.15) 0%, transparent 70%);
+  }
+  .glow2 {
+    position: absolute;
+    bottom: -300px; left: -100px;
+    width: 700px; height: 700px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(90, 158, 90, 0.10) 0%, transparent 70%);
+  }
+  h1 {
+    position: absolute;
+    top: 90px; left: 80px;
+    margin: 0;
+    font-size: 92px;
+    font-weight: 800;
+    letter-spacing: -3px;
+    background: linear-gradient(90deg, #ffffff 0%, #00a1ff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .tagline {
+    position: absolute;
+    top: 210px; left: 84px;
+    font-size: 32px;
+    color: #8b949e;
+    font-weight: 400;
+  }
+  .features {
+    position: absolute;
+    top: 290px; left: 80px;
+    display: flex;
+    gap: 38px;
+  }
+  .feat {
+    font-size: 24px;
+    color: #e6edf3;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .feat .dot {
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #00a1ff;
+    box-shadow: 0 0 20px #00a1ff;
+  }
+  .feat:nth-child(2) .dot { background: #5a9e5a; box-shadow: 0 0 20px #5a9e5a; }
+  .feat:nth-child(3) .dot { background: #f0b500; box-shadow: 0 0 20px #f0b500; }
+  .printers {
+    position: absolute;
+    top: 540px; left: 80px;
+    font-size: 28px;
+    color: #7ee787;
+    font-weight: 600;
+  }
+  .repo {
+    position: absolute;
+    top: 548px; right: 80px;
+    font-size: 22px;
+    color: #c9d1d9;
+    font-family: "SF Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="glow1"></div>
+    <div class="glow2"></div>
+    <h1>KAMP-K2</h1>
+    <div class="tagline">Adaptive bed mesh &amp; line purge for Creality K2</div>
+    <div class="features">
+      <div class="feat"><span class="dot"></span>One-click Windows installer</div>
+      <div class="feat"><span class="dot"></span>Auto-detects your board</div>
+      <div class="feat"><span class="dot"></span>Survives firmware updates</div>
+    </div>
+    <div class="printers">&#10003; K2 &nbsp;&middot;&nbsp; K2 Plus &nbsp;&middot;&nbsp; K2 Combo &nbsp;&middot;&nbsp; K2 Pro</div>
+    <div class="repo">github.com/grant0013/KAMP-K2</div>
+  </div>
+</body>
+</html>
