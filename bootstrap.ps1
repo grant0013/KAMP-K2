@@ -1,4 +1,4 @@
-﻿# KAMP-K2 bootstrap — iex-compatible entrypoint.
+# KAMP-K2 bootstrap -- iex-compatible entrypoint.
 #
 # `install.ps1` declares [CmdletBinding()] + param(), which PowerShell only
 # accepts at the top of a script FILE. `Invoke-Expression` can't parse those
@@ -31,7 +31,22 @@ Write-Host "[*] Launching installer..." -ForegroundColor Cyan
 Write-Host ""
 
 # Relaunch install.ps1 as a real script so its param() block and
-# [CmdletBinding()] are honoured. Running in a child scope keeps state clean.
-& $TargetPath
-$rc = $LASTEXITCODE
+# [CmdletBinding()] are honoured. Wrap in try/catch so ANY error surfaces
+# to the user -- silent exits were a real reported issue.
+try {
+    & $TargetPath
+    $rc = $LASTEXITCODE
+} catch {
+    Write-Host ""
+    Write-Host "[x] Installer crashed with an error:" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Script location: $TargetPath" -ForegroundColor Yellow
+    Write-Host "Stack trace:" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Paste the above into a GitHub issue:" -ForegroundColor Yellow
+    Write-Host "  https://github.com/grant0013/KAMP-K2/issues" -ForegroundColor Yellow
+    exit 1
+}
 exit $rc

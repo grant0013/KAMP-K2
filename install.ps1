@@ -218,9 +218,32 @@ Write-Host " KAMP-K2 PowerShell installer"   -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host ""
 
-$py = Ensure-Python
-Ensure-Paramiko $py
-Download-Repo
+# Some users hit a "silent exit" around Download-Repo where the script
+# appeared to end with no error shown. Wrap everything in a try so any
+# unhandled exception surfaces to stdout rather than vanishing.
+try {
+    $py = Ensure-Python
+    Ensure-Paramiko $py
+    # TLS 1.2 fallback: older Windows/PS 5.1 configs still default to
+    # TLS 1.0 which GitHub has dropped. This is a no-op if already 1.2+.
+    try {
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor
+            [Net.SecurityProtocolType]::Tls12
+    } catch { }
+    # Suppress the noisy IWR progress bar in PS 5.1 — it flickers the
+    # console and has been known to mask error output.
+    $ProgressPreference = 'SilentlyContinue'
+    Download-Repo
+} catch {
+    Write-Host ""
+    Write-Host "[x] Setup / download failed:" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Stack:" -ForegroundColor Yellow
+    Write-Host $_.ScriptStackTrace -ForegroundColor Yellow
+    exit 1
+}
 
 $ip = Get-PrinterHost
 
