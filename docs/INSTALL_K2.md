@@ -143,16 +143,35 @@ ssh root@PRINTER_IP '/etc/init.d/klipper restart'
 ssh root@PRINTER_IP 'tail -50 /mnt/UDISK/printer_data/logs/klippy.log | grep bed_mesh_override'
 ```
 
-You should see:
+You should see two lines:
 
 ```
-[INFO] bed_mesh_override: _BED_MESH_CALIBRATE re-registered to guarded upstream
-       (KAMP mode; bare calls are no-ops; MESH_MIN/MAX required to run)
+[INFO] bed_mesh_override: upstream bound to BedMeshCalibrate via class BedMeshCalibrate
+       (bypasses any subclass override)
+[INFO] bed_mesh_override: re-registered to guarded upstream on _BMC_KAMP_INNER,
+       _BED_MESH_CALIBRATE (KAMP mode; bare calls are no-ops; MESH_MIN/MAX required to run)
 ```
 
-The words `KAMP mode` are what you're looking for — they confirm the override detected KAMP's wrapper and positioned itself correctly (on `_BED_MESH_CALIBRATE`, not `BED_MESH_CALIBRATE`, so KAMP stays the entry point).
+The words `KAMP mode` and the two names (`_BMC_KAMP_INNER, _BED_MESH_CALIBRATE`) are what you're looking for — they confirm the override guarded both possible KAMP-internal targets. Either of those names gets called depending on KAMP config version; having both covered means KAMP's actual call always lands on our guarded upstream.
 
 If you see `direct mode` instead, KAMP isn't being loaded — check that `[include KAMP/KAMP_Settings.cfg]` is in `printer.cfg` and that `[include Adaptive_Meshing.cfg]` is uncommented in `KAMP_Settings.cfg`.
+
+## Step 10 — Slicer start-gcode
+
+KAMP's `LINE_PURGE` emits its own adaptive purge line at the edge of the print area. Most slicers' default start-gcode also runs a purge line of their own (front corner, fixed position). You end up with two purges: one adaptive, one not. Cosmetic rather than broken, but the extra material is wasteful.
+
+Replace your slicer's default start-gcode with just the essentials. For **OrcaSlicer / Bambu Studio** (`Printer settings → Machine G-code → Machine start G-code`):
+
+```
+START_PRINT EXTRUDER_TEMP=[nozzle_temperature_initial_layer] BED_TEMP=[bed_temperature_initial_layer_single]
+T[initial_no_support_extruder]
+M204 S2000
+M83
+```
+
+That's it — four lines. The K2's own `START_PRINT` macro (now KAMP-aware) handles the rest: heating, homing, mesh, nozzle clean, and the adaptive `LINE_PURGE`. Everything else the default start-gcode was doing is now redundant or conflicting.
+
+For **PrusaSlicer / SuperSlicer**, the `[nozzle_temperature_initial_layer]` and `[bed_temperature_initial_layer_single]` variable names differ — use `[first_layer_temperature]` and `[first_layer_bed_temperature]` respectively.
 
 ## Done
 
