@@ -58,16 +58,68 @@ function Test-Python {
     return $null
 }
 
+function Test-Winget {
+    try {
+        $null = & winget --version 2>$null
+        return ($LASTEXITCODE -eq 0)
+    } catch { return $false }
+}
+
+function Install-PythonViaWinget {
+    Write-Step "Installing Python via winget (Python.Python.3.12)..."
+    # --scope user avoids UAC elevation; --silent skips the Python GUI;
+    # --accept-* skips the prompts winget would otherwise throw.
+    & winget install --exact --id Python.Python.3.12 `
+        --scope user --silent `
+        --accept-package-agreements --accept-source-agreements 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "winget Python install failed (exit $LASTEXITCODE)."
+        return $false
+    }
+    # winget installs don't update the current session's PATH. Re-read
+    # PATH from the registry (user + machine) so `python` resolves now.
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+    $env:Path = $machinePath + ';' + $userPath
+    Write-Ok "Python installed via winget; PATH refreshed in this session."
+    return $true
+}
+
 function Ensure-Python {
     $py = Test-Python
     if ($py) {
         Write-Ok "Python found: $py ($(& $py --version 2>&1))"
         return $py
     }
-    Write-Err "Python 3 not found on PATH."
+    Write-Warn "Python 3 not found on PATH."
     Write-Host ""
-    Write-Host "Install Python 3 from: https://www.python.org/downloads/" -ForegroundColor Yellow
-    Write-Host "IMPORTANT: tick 'Add Python to PATH' during install." -ForegroundColor Yellow
+
+    if (Test-Winget) {
+        Write-Host "winget is available on this machine. I can install" -ForegroundColor Yellow
+        Write-Host "Python 3.12 for you (user-scoped, no admin needed)." -ForegroundColor Yellow
+        Write-Host ""
+        $yn = Read-Host "Install Python 3.12 via winget now? [Y/n]"
+        if ($yn -ne "n") {
+            if (Install-PythonViaWinget) {
+                $py = Test-Python
+                if ($py) {
+                    Write-Ok "Python ready: $py ($(& $py --version 2>&1))"
+                    return $py
+                }
+                Write-Err "Python installed but not on PATH. Close and"
+                Write-Err "reopen PowerShell, then re-run this script."
+                exit 1
+            }
+            # winget path failed; fall through to manual instructions.
+        }
+    } else {
+        Write-Host "(winget not found on this machine -- usually Win 10" -ForegroundColor Gray
+        Write-Host " pre-1809 or App Installer not present.)"             -ForegroundColor Gray
+        Write-Host ""
+    }
+
+    Write-Host "Manual install: https://www.python.org/downloads/"                  -ForegroundColor Yellow
+    Write-Host "IMPORTANT: tick 'Add Python to PATH' on the first screen."          -ForegroundColor Yellow
     Write-Host ""
     $open = Read-Host "Open the Python download page now? [Y/n]"
     if ($open -ne "n") {
