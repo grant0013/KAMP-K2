@@ -114,7 +114,7 @@ gcode:
 
 ## Step 8 — Insert KAMP-triggering calls into `START_PRINT`
 
-Find `[gcode_macro START_PRINT]`. Inside its `gcode:` body, locate the `{% endif %}` that closes the `prepare == 0 / prepare == 1` if/else. Right after that `{% endif %}`, before the next `M140 S{params.BED_TEMP}`, insert:
+Find `[gcode_macro START_PRINT]`. Inside its `gcode:` body, locate the `{% endif %}` that closes the `prepare == 0 / prepare == 1` if/else. Right after that `{% endif %}`, before the next `M140 S{params.BED_TEMP}`, insert **only** the mesh block:
 
 ```
   # KAMP-K2: adaptive mesh. BED_MESH_CALIBRATE is wrapped by KAMP and
@@ -128,12 +128,11 @@ Find `[gcode_macro START_PRINT]`. Inside its `gcode:` body, locate the `{% endif
   {% endif %}
 ```
 
-Then find the line `G92 E0 ; Reset Extruder` later in the same macro. Immediately before it (after the last `BOX_NOZZLE_CLEAN`), insert:
+**Do NOT add `LINE_PURGE` inside `START_PRINT`.** On CFS-equipped K2s the CFS only pulls filament to the nozzle when the slicer emits `T<n>` (tool select), and `T<n>` runs AFTER `START_PRINT` returns. If `LINE_PURGE` sits inside `START_PRINT`, it fires before there's any filament at the nozzle — result is an empty purge, followed by the CFS load, followed by an un-purged print start. See [issue #1](https://github.com/grant0013/KAMP-K2/issues/1).
 
-```
-  # KAMP-K2: adaptive purge line at print-area edge
-  LINE_PURGE
-```
+`LINE_PURGE` goes in the **slicer's start-gcode** instead, after the `T<n>` line. Slicer setup details are in the [README Slicer setup section](../README.md#slicer-setup).
+
+If a previous installer version added `LINE_PURGE` to your `START_PRINT`, remove that line — it'll no-op as an empty purge on cold starts.
 
 ## Step 9 — Restart Klippy and verify
 

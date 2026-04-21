@@ -72,16 +72,21 @@ Tested on my K2 Combo (`CR0CN200400C10`, firmware `V1.1.4.1`, Klipper `09faed31-
 
 ### OrcaSlicer
 
-**Printer Settings → Machine G-code → Machine start G-code** — replace the default with exactly these four lines:
+**Printer Settings → Machine G-code → Machine start G-code** — replace the default with exactly these five lines:
 
 ```
 START_PRINT EXTRUDER_TEMP=[nozzle_temperature_initial_layer] BED_TEMP=[bed_temperature_initial_layer_single]
 T[initial_no_support_extruder]
+LINE_PURGE
 M204 S2000
 M83
 ```
 
-> **Why strip it down**: KAMP's `LINE_PURGE` emits its own adaptive purge line at the edge of the print area. Orca's default Creality-K2 start-gcode includes a fixed front-corner purge too. If you leave both in, you get two purge lines per print — the adaptive one *and* the fixed one — which wastes filament. The four lines above let the K2's own `START_PRINT` macro handle heating, homing, mesh, nozzle clean, and the adaptive purge; everything else becomes redundant.
+> **Why these exact lines, in this order**:
+> - `START_PRINT` runs heating, homing, adaptive mesh, nozzle clean. Does **not** load filament (that's slicer-side on K2).
+> - `T[initial_no_support_extruder]` triggers the CFS (or direct-drive loader) to actually pull filament to the nozzle.
+> - `LINE_PURGE` **must come after T<n>** — if it runs before, there's no filament at the nozzle yet and you get an empty purge followed by an un-purged start (reported by [issue #1](https://github.com/grant0013/KAMP-K2/issues/1)).
+> - `M204 S2000` + `M83` — accel limit + relative extrusion. Anything beyond these is usually the slicer's default fixed purge line, which wastes filament now that KAMP is doing an adaptive one.
 
 **Print Settings → Others → Bed mesh** (match your `[bed_mesh]` section in printer.cfg):
 - Bed mesh min: `5, 5`

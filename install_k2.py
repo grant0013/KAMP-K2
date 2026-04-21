@@ -30,8 +30,9 @@ What this does:
        that collides with upstream Klipper bed_mesh via our override.
     8. Hijacks `[gcode_macro G29]` and `[gcode_macro BED_MESH_CALIBRATE_START_PRINT]`
        to no-op handshake macros (master-server compatibility).
-    9. Inserts a bare `BED_MESH_CALIBRATE` call (KAMP picks it up) and
-       `LINE_PURGE` call into `[gcode_macro START_PRINT]`.
+    9. Inserts a bare `BED_MESH_CALIBRATE` call into `[gcode_macro START_PRINT]`
+       (KAMP picks it up and runs adaptive mesh). LINE_PURGE goes in the
+       slicer start-gcode, not here -- see README "Slicer setup".
    10. Backs up originals to /mnt/exUDISK/.system/kamp_k2_backup_<timestamp>/
        (firmware-update-survivable) if the SSD is present, else to
        /mnt/UDISK/printer_data/config/backups/.
@@ -715,25 +716,39 @@ class Installer:
                 self.log("START_PRINT: anchor not found, skipping mesh block "
                          "insert (manual step may be needed)", "warn")
 
+        # LINE_PURGE intentionally NOT inserted into START_PRINT.
+        #
+        # Reported by Reddit user neturmel (issue #1): on CFS-equipped K2s,
+        # the CFS pulls filament from a spool slot only when the slicer's
+        # `T<n>` tool-select command runs. That `T<n>` is emitted by the
+        # slicer AFTER START_PRINT returns. A LINE_PURGE inside START_PRINT
+        # therefore fires with no filament at the nozzle -- result is an
+        # empty purge, then the filament loads, then printing begins with
+        # an un-purged nozzle (the exact symptom neturmel saw).
+        #
+        # Correct placement is in the SLICER's start-gcode, AFTER the
+        # T<n> line -- see README "Slicer setup". We remove any old-style
+        # in-macro LINE_PURGE here on re-install to keep things clean.
         if purge_already:
-            self.log("START_PRINT: LINE_PURGE call already present, "
-                     "skipping purge insert", "ok")
+            self.log("START_PRINT: removing legacy LINE_PURGE call "
+                     "(moved to slicer start-gcode; see README)",
+                     "ok")
+            # Remove the LINE_PURGE line AND the adjacent KAMP marker
+            # comment if present (both forms: old "KAMP adaptive ..."
+            # and current "KAMP-K2: adaptive ...").
+            cfg = re.sub(
+                r"^\s*#\s*KAMP(?:-K2)?\s*(?:adaptive\s*)?"
+                r"(?:purge\s*line\s*(?:at\s*print[^\n]*)?)?\s*\n",
+                "",
+                cfg, flags=re.MULTILINE | re.IGNORECASE)
+            cfg = re.sub(
+                r"^\s*LINE_PURGE\s*(#.*)?\n",
+                "",
+                cfg, flags=re.MULTILINE)
         else:
-            # Anchor: after BOX_NOZZLE_CLEAN, before G92 E0 ; Reset Extruder
-            anchor = re.compile(
-                r"(  BOX_NOZZLE_CLEAN\n)"
-                r"(  G92 E0 ; Reset Extruder)"
-            )
-            m = anchor.search(cfg)
-            if m:
-                cfg = anchor.sub(
-                    r"\1" + LINE_PURGE_LINE + r"\2",
-                    cfg, count=1,
-                )
-                self.log("START_PRINT: LINE_PURGE inserted", "ok")
-            else:
-                self.log("START_PRINT: LINE_PURGE anchor not found "
-                         "(manual step may be needed)", "warn")
+            self.log("START_PRINT: no legacy LINE_PURGE to remove "
+                     "(add LINE_PURGE to your slicer start-gcode "
+                     "after the T<n> line; see README)", "ok")
 
         if cfg != original:
             self.write_remote(GCODE_MACRO_CFG, cfg)
