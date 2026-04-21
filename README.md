@@ -70,6 +70,17 @@ Tested on my K2 Combo (`CR0CN200400C10`, firmware `V1.1.4.1`, Klipper `09faed31-
 
 ## Slicer setup
 
+### Slicer compatibility
+
+| Slicer | Status | Notes |
+|---|---|---|
+| **OrcaSlicer** | **Recommended / fully supported** | Free, emits `EXCLUDE_OBJECT_DEFINE` out of the box, placeholder syntax matches KAMP-K2's docs. All testing done here. |
+| **Bambu Studio** | Expected to work | Same codebase as Orca, same placeholder syntax. Untested. |
+| **PrusaSlicer / SuperSlicer** | Should work | Emits object metadata via "Label objects". Variable names differ slightly (see below). Untested. |
+| **Creality Print** | **Partial / not recommended** | Emits `EXCLUDE_OBJECT_DEFINE` correctly (tick "Exclude objects" + "Label objects" under G-code output), so KAMP's adaptive mesh **will** run. HOWEVER: CP uses its own placeholder syntax that's incompatible with the custom start-gcode shown below, and its default start-gcode triggers Creality's built-in pre-print mesh sequence *in addition* to KAMP's — you end up with one full mesh + one adaptive mesh per print, wasting probe time. KAMP-K2 is primarily developed and tested against Orca. If you want full benefit, switch slicer. |
+
+> **The rest of this setup section assumes OrcaSlicer.** If you use CP anyway, leave its default start-gcode alone — don't paste the Orca-specific lines below. KAMP will still run adaptively inside `START_PRINT`, you'll just also get CP's full mesh and corner purge on top.
+
 ### OrcaSlicer
 
 **Printer Settings → Machine G-code → Machine start G-code** — replace the default with exactly these five lines:
