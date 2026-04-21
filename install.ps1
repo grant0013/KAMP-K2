@@ -4,16 +4,20 @@
 # prompts for printer IP, detects existing install, runs installer/revert.
 # No manual SSH needed.
 #
-# Run from PowerShell (not cmd.exe):
+# Run from PowerShell (not cmd.exe). Recommended one-liner (uses bootstrap.ps1
+# because iex cannot parse scripts that declare [CmdletBinding()] + param()):
 #
-#   iwr -useb https://raw.githubusercontent.com/grant0013/KAMP-K2/main/install.ps1 | iex
+#   iwr -useb https://raw.githubusercontent.com/grant0013/KAMP-K2/main/bootstrap.ps1 | iex
 #
-# Or download this file and run: .\install.ps1
+# Or download this file and run locally:
+#   .\install.ps1
 #
-# Optional parameters:
-#   .\install.ps1 -Host 192.168.1.42
-#   .\install.ps1 -Host 192.168.1.42 -Password mypass
-#   .\install.ps1 -Revert              # revert without menu
+# Optional parameters (note: -PrinterHost, NOT -Host -- PowerShell reserves
+# $Host as the built-in host object, so -Host is not allowed as a param name):
+#   .\install.ps1 -PrinterHost 192.168.1.42
+#   .\install.ps1 -PrinterHost 192.168.1.42 -Password mypass
+#   .\install.ps1 -Revert                         # revert without menu
+#   .\install.ps1 -PrinterHost 192.168.1.42 -Revert
 
 [CmdletBinding()]
 param(
@@ -265,7 +269,7 @@ if ($rc -eq 0) {
     Write-Host "These survive printer firmware updates. Keep them safe." -ForegroundColor Gray
     Write-Host ""
     Write-Host "To revert later:" -ForegroundColor Gray
-    Write-Host "  .\install.ps1 -Host $ip -Revert" -ForegroundColor Gray
+    Write-Host "  .\install.ps1 -PrinterHost $ip -Revert" -ForegroundColor Gray
 } else {
     Write-Err "Installer exited with code $rc"
     Write-Host "Check messages above. Open an issue if stuck:"
