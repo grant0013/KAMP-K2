@@ -39,8 +39,19 @@ class BedMeshOverride:
     def __init__(self, config):
         self.printer = config.get_printer()
         self.upstream_cmd = None
+        # klippy:ready, not klippy:connect. Reason: KAMP's
+        # gcode_macro uses its own klippy:connect handler to run
+        # rename_existing (which creates _BMC_KAMP_INNER by moving
+        # the existing BED_MESH_CALIBRATE handler). klippy:connect
+        # handler ORDER is undefined. On some Klipper forks (K2 Plus
+        # F008 in particular) our handler fires FIRST -- we
+        # pre-register _BMC_KAMP_INNER, then KAMP's rename_existing
+        # fails with "gcode command _BMC_KAMP_INNER already
+        # registered" (key57) and Klippy halts at config parse.
+        # klippy:ready fires AFTER all connect handlers complete,
+        # so KAMP has always done its rename by the time we override.
         self.printer.register_event_handler(
-            "klippy:connect", self._handle_connect)
+            "klippy:ready", self._handle_connect)
 
     def _handle_connect(self):
         try:
