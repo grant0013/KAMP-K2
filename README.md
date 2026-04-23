@@ -14,7 +14,7 @@ A fork of [kyleisah/Klipper-Adaptive-Meshing-Purging](https://github.com/kyleisa
 
 > Looking for upstream KAMP's own readme? It's preserved as [`README_KAMP_UPSTREAM.md`](README_KAMP_UPSTREAM.md).
 >
-> Need help? Visit my site, we have a huge help section dedicated to the Creality K2 https://harkteck.co.uk
+> Need help? Visit my site, we have a huge help section dedicated to the Creality K2 https://harktech.co.uk
 
 ## What's different from upstream KAMP
 
