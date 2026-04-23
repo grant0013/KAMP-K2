@@ -10,6 +10,8 @@
 
 A fork of [kyleisah/Klipper-Adaptive-Meshing-Purging](https://github.com/kyleisah/Klipper-Adaptive-Meshing-Purging) with the small amount of extra glue Creality K2 printers need to make KAMP actually work.
 
+> ❤️ **Enjoying KAMP-K2?** Free forever (GPL v3) — if it saved you some K2 mesh-fighting, [buy me a coffee](https://buymeacoffee.com/harktron) or tip BTC: `bc1q4tlvaufnaefshdjjuxm5xkcrdazefhap52hdja`. No obligation, bug reports help just as much.
+
 > Looking for upstream KAMP's own readme? It's preserved as [`README_KAMP_UPSTREAM.md`](README_KAMP_UPSTREAM.md).
 
 ## What's different from upstream KAMP
@@ -167,15 +169,6 @@ If you want adaptive meshing to run fewer probe points on small parts (faster me
 ## Companion project
 
 [**K2-Screws-Tilt**](https://github.com/grant0013/K2-Screws-Tilt) — brings Klipper's `SCREWS_TILT_CALCULATE` helper to the K2 family. Uses your existing strain-gauge probe to tell you "front-left: turn 1/4 CW" for manual bed-screw levelling. Same one-click Windows installer, same backup/revert UX. Confirmed on K2 Combo.
-
-## Support
-
-KAMP-K2 is free software (GPL v3) and will stay that way. If it saved you a few evenings of K2 mesh-fighting and you'd like to say thanks:
-
-- [Buy me a coffee](https://buymeacoffee.com/harktron)
-- BTC: `bc1q4tlvaufnaefshdjjuxm5xkcrdazefhap52hdja`
-
-No obligation — bug reports and test results on K2 variants are just as welcome.
 
 ## Credits
 
