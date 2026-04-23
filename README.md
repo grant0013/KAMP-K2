@@ -43,13 +43,32 @@ iwr -useb https://raw.githubusercontent.com/grant0013/KAMP-K2/main/bootstrap.ps1
 
 The script checks for Python (prompts to install if missing), downloads the repo, installs `paramiko`, asks for your printer's IP, and runs the installer. No manual SSH required.
 
-### macOS / Linux / manual
+### macOS / Linux (one-liner)
+
+Open a terminal and paste:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/grant0013/KAMP-K2/main/install.sh | bash
+```
+
+Same flow as the Windows one-liner: checks for Python 3.8+ (prompts you how to install it if missing), creates an isolated venv, installs `paramiko`, clones the repo into `~/KAMP-K2`, asks for your printer's IP, and runs the installer. The venv sidesteps PEP 668 ("externally-managed-environment") errors on modern macOS / Ubuntu 23.04+ / Debian 12+ without needing `--break-system-packages`.
+
+Non-interactive form (for scripts / re-runs):
+
+```sh
+~/KAMP-K2/install.sh --host 192.168.1.42
+~/KAMP-K2/install.sh --host 192.168.1.42 --revert
+```
+
+### Manual / any OS
+
+If you'd rather not run the installer:
 
 ```sh
 git clone https://github.com/grant0013/KAMP-K2
 cd KAMP-K2
-pip install paramiko
-python install_k2.py --host 192.168.x.x
+python3 -m venv .venv && .venv/bin/pip install paramiko
+.venv/bin/python install_k2.py --host 192.168.x.x
 ```
 
 Replace `192.168.x.x` with your printer's IP. The installer uses the Creality stock root password (`creality_2024`) by default; override with `--password MYPASS` if yours has been changed.

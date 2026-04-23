@@ -1,0 +1,12 @@
+# Force LF line endings for shell scripts so curl|bash works on Linux/macOS
+# even when the repo is cloned on Windows. Without this, Git's autocrlf will
+# rewrite shebangs as `#!/usr/bin/env bash\r\n`, breaking them on *nix.
+*.sh        text eol=lf
+bootstrap.* text eol=lf
+
+# Python stays LF too for consistency.
+*.py        text eol=lf
+
+# PowerShell scripts are Windows-side; let them keep CRLF (PS 5.1 handles
+# both but BOM/CRLF is the native expectation).
+*.ps1       text eol=crlf
