@@ -22,14 +22,16 @@ Creality's K2 firmware does two things that break upstream KAMP out of the box (
 
 1. **`prtouch_v3_wrapper.so` hijacks `BED_MESH_CALIBRATE`** with a non-adaptive implementation that ignores `MESH_MIN` / `MESH_MAX` / `PROBE_COUNT` and crashes with `IndexError` when those are passed. KAMP relies on the upstream Klipper handler being present, so KAMP calls fail silently or blow up.
 2. **`master-server` daemon independently fires `G29` and `BED_MESH_CALIBRATE_START_PRINT`** during print prep, outside of any slicer start-gcode. Those fire before KAMP can run and triggers a stock full-bed mesh every time.
+3. **Orca's K2 `change_filament_gcode` template drops Z to 0** immediately after `LINE_PURGE` at print start. The template uses `{z_after_toolchange}`, which is `0` before any layer has printed, so the nozzle scrapes from the post-purge position diagonally across the bed to the first print object. This is invisible in the slicer (it only manifests on first-print tool activation) and the upstream KAMP `Line_Purge.cfg` ends with a hardcoded 0.4 mm hop that isn't enough to escape it.
 
-KAMP-K2 fixes both:
+KAMP-K2 fixes all three:
 
 - **`extras/restore_bed_mesh.py`** — a small Klipper extras module that re-registers the upstream `bed_mesh.BedMeshCalibrate.cmd_BED_MESH_CALIBRATE` handler, wrapping it with a guard that requires `MESH_MIN` / `MESH_MAX` bounds to run. Bare calls (from master-server) are no-ops. KAMP-aware: detects KAMP's `rename_existing: _BED_MESH_CALIBRATE` and overrides the inner handler so KAMP stays the user-facing entry point.
 - **Macro hijacks**: `G29` and `BED_MESH_CALIBRATE_START_PRINT` are replaced with no-op macros that emit a fake `[G29_TIME]Execution time: 0.0` response so master-server's print-prep sequence is satisfied without actually running a mesh. The real mesh runs inside `START_PRINT` where KAMP has slicer metadata available.
 - **`START_PRINT` patches**: a call to bare `BED_MESH_CALIBRATE` (which KAMP wraps with adaptive bounds) and a `LINE_PURGE` call are inserted in the right places relative to the K2's CFS-specific nozzle clean and prime moves.
+- **`Line_Purge.cfg` Z-protection (v1.1.0)**: a new `purge_z_hop` variable in `KAMP_Settings.cfg` (default `2.0` mm) controls the post-purge clearance. `LINE_PURGE` applies `SET_GCODE_OFFSET Z=purge_z_hop` at the end of the purge so Orca's subsequent `G1 Z0` lands safely at the hop height instead of the bed. A `G92` override (rename_existing: G92.1) clears the offset on the slicer's first post-purge `G92 E0` — emitted in the layer-change block, between the bad Z=0 line and the first real layer Z move — so the first-layer height is unaffected. No slicer config changes needed.
 
-Upstream KAMP's `Adaptive_Meshing.cfg`, `Line_Purge.cfg`, and `KAMP_Settings.cfg` are included unchanged — this fork only *adds* files, never modifies KAMP's own behaviour.
+This fork modifies upstream KAMP's `Line_Purge.cfg` and `KAMP_Settings.cfg` to add the Z-protection above; `Adaptive_Meshing.cfg` and `Voron_Purge.cfg` are unchanged.
 
 ## Quick start
 
