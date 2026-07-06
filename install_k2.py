@@ -3,7 +3,8 @@
 KAMP-K2 auto-installer.
 
 Installs KAMP + the K2-specific `restore_bed_mesh` override onto a stock
-Creality K2 / K2 Plus over SSH. Idempotent: safe to re-run.
+Creality K2 / K2 Plus. Runs either over SSH from a PC (--host) or directly on
+the printer (--local, no SSH/paramiko/venv). Idempotent: safe to re-run.
 
 Usage:
     python install_k2.py --host 192.168.3.57
@@ -11,6 +12,7 @@ Usage:
     python install_k2.py --host 192.168.3.57 --dry-run
     python install_k2.py --host 192.168.3.57 --revert
     python install_k2.py --host 192.168.3.57 --board F008  # force K2 Plus path
+    python3 install_k2.py --local  # on the printer itself, no SSH/paramiko
 
 Defaults:
     user=root, password=creality_2024 (Creality stock credential)
@@ -38,25 +40,29 @@ What this does:
        /mnt/UDISK/printer_data/config/backups/.
    11. Restarts Klippy and checks the log for the expected "KAMP mode" message.
 
-Requires: paramiko (`pip install paramiko`).
+Requires: paramiko (`pip install paramiko`) for remote --host mode only.
+--local mode runs on the printer with the Python standard library alone.
 """
 from __future__ import annotations
 
 import argparse
-import io
 import os
 import posixpath
 import re
 import socket
+import subprocess
 import sys
 import time
+from typing import TYPE_CHECKING
 
-try:
+# paramiko is imported lazily inside Installer.connect() (remote SSH mode only).
+# --local mode runs directly on the printer, where paramiko/venv can't be
+# installed, and needs no third-party deps. `from __future__ import annotations`
+# keeps the paramiko type hints below as strings so they never evaluate at
+# runtime when paramiko is absent; the TYPE_CHECKING import lets static checkers
+# still resolve them.
+if TYPE_CHECKING:
     import paramiko
-except ImportError:
-    sys.stderr.write(
-        "error: paramiko is required. Install with: pip install paramiko\n")
-    sys.exit(2)
 
 
 # ---------- constants --------------------------------------------------------
@@ -107,6 +113,39 @@ gcode:
   M118 [G29_TIME]Execution time: 0.0 seconds, Time spent at each point: 0.0
 """
 
+
+def _hijack_macro(cfg: str, macro: str, hijack: str) -> tuple[str, bool]:
+    """Idempotently ensure an ACTIVE [gcode_macro <macro>] carries the KAMP-K2
+    hijack. Handles the three stock states seen across K2 variants:
+      - already hijacked            -> no-op
+      - an active stock block       -> replace it in place
+      - only a COMMENTED / absent   -> insert a fresh active block
+    The K2 Pro ships `# [gcode_macro G29]` commented out; the previous
+    in-place-only regex did `re.search(...).group(0)` on that and crashed with
+    AttributeError. Returns (new_cfg, changed)."""
+    name = re.escape(macro)
+    # `\s+`/`\s*` match the header the way Klipper's own parser tolerates it
+    # (tab or multiple spaces). A stricter literal-space pattern here would miss
+    # such a header, fall through to the append branch, and emit a SECOND active
+    # section -> Klipper refuses to boot. `(?=^\[|\Z)` stops at the next section
+    # header OR end-of-file, so an active block that is the last section in the
+    # file is still matched (never mistaken for absent and duplicated).
+    block = r"^\[gcode_macro\s+" + name + r"\s*\].*?(?=^\[|\Z)"
+    active = re.search(block, cfg, re.MULTILINE | re.DOTALL)
+    if active and "Hijacked by KAMP-K2" in active.group(0):
+        return cfg, False
+    if active:  # active stock block present -> replace it in place
+        # Replace via a function, not a string: `\`/`\g<...>` in a future
+        # hijack template can't then be read as regex backreferences.
+        return re.sub(block, lambda _m: hijack + "\n", cfg, count=1,
+                      flags=re.MULTILINE | re.DOTALL), True
+    commented = re.search(r"^#\s*\[gcode_macro\s+" + name + r"\s*\]",
+                          cfg, re.MULTILINE)
+    if commented:  # only a commented stock block -> insert active above it
+        return cfg[:commented.start()] + hijack + "\n" + cfg[commented.start():], True
+    return cfg.rstrip() + "\n\n" + hijack + "\n", True  # absent -> append
+
+
 START_PRINT_MESH_BLOCK = """  # KAMP-K2: adaptive mesh. BED_MESH_CALIBRATE is wrapped by KAMP and
   # reads exclude_object metadata from the loaded gcode to size the probe
   # to just the print area.
@@ -126,7 +165,8 @@ class Installer:
     def __init__(self, host: str, user: str, password: str,
                  dry_run: bool = False, verbose: bool = False,
                  board: str = "auto",
-                 local_backup_dir: str | None = None) -> None:
+                 local_backup_dir: str | None = None,
+                 local: bool = False) -> None:
         self.host = host
         self.user = user
         self.password = password
@@ -134,6 +174,7 @@ class Installer:
         self.verbose = verbose
         self.board = board  # "auto" | "F008" | "F021"
         self.local_backup_dir = local_backup_dir
+        self.local = local  # run directly on the printer, no SSH/paramiko
         self.ssh: paramiko.SSHClient | None = None
         self.changes_made: list[str] = []
 
@@ -144,6 +185,16 @@ class Installer:
         print(f"[{prefix}] {msg}")
 
     def connect(self) -> None:
+        if self.local:
+            cfg_dir = posixpath.dirname(PRINTER_CFG)
+            if not os.path.isdir(cfg_dir):
+                self.log(f"--local: {cfg_dir} not found - this doesn't look "
+                         "like the printer. Run this on the K2 itself, or drop "
+                         "--local to install over SSH from your PC.", "err")
+                sys.exit(1)
+            self.log("Running in --local mode (on the printer, no SSH).", "ok")
+            return
+        import paramiko  # lazy: only needed for remote SSH mode
         self.log(f"Connecting to {self.user}@{self.host}...", "step")
         self.ssh = paramiko.SSHClient()
         self.ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -169,6 +220,20 @@ class Installer:
             self.ssh.close()
 
     def run(self, cmd: str) -> tuple[int, str, str]:
+        if self.local:
+            # errors="replace" matches the remote path's decode; the printer's
+            # C-locale ASCII codec would otherwise crash on non-ASCII bytes in
+            # command output (e.g. print filenames in klippy.log).
+            p = subprocess.run(cmd, shell=True, capture_output=True,
+                               text=True, errors="replace")
+            rc, out, err = p.returncode, p.stdout, p.stderr
+            if self.verbose:
+                self.log(f"  $ {cmd}  (rc={rc})", "info")
+                if out.strip():
+                    self.log(f"    out: {out.strip()[:300]}", "info")
+                if err.strip():
+                    self.log(f"    err: {err.strip()[:300]}", "info")
+            return rc, out, err
         assert self.ssh is not None
         stdin, stdout, stderr = self.ssh.exec_command(cmd)
         out = stdout.read().decode("utf-8", errors="replace")
@@ -187,6 +252,9 @@ class Installer:
         return "YES" in out
 
     def read_remote(self, path: str) -> str:
+        if self.local:
+            with open(path, "rb") as f:
+                return f.read().decode("utf-8", errors="replace")
         # Read file via `cat` over exec_command. K2 busybox doesn't have
         # base64, so we stream raw bytes back through the SSH channel.
         assert self.ssh is not None
@@ -204,12 +272,20 @@ class Installer:
             self.log(f"[dry-run] would write {path} "
                      f"({len(content)} bytes)", "dry")
             return
+        raw = content.encode() if isinstance(content, str) else content
+        if self.local:
+            parent = posixpath.dirname(path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(raw)
+            os.chmod(path, mode)
+            return
         assert self.ssh is not None
         parent = posixpath.dirname(path)
         if parent:
             self.run(f"mkdir -p '{parent}'")
         octal_mode = oct(mode)[2:]
-        raw = content.encode() if isinstance(content, str) else content
         # Pipe content through `cat > file` via exec_command stdin.
         # Binary-safe, no shell quoting concerns, works on dropbear which
         # doesn't have an SFTP server. K2 busybox also lacks base64/uuencode
@@ -654,33 +730,18 @@ class Installer:
         cfg = self.read_remote(GCODE_MACRO_CFG)
         original = cfg
 
-        # 1. Hijack [gcode_macro G29]
-        if "Hijacked by KAMP-K2" not in re.search(
-                r"^\[gcode_macro G29\].*?(?=^\[gcode_macro )",
-                cfg, re.MULTILINE | re.DOTALL).group(0):
-            cfg = re.sub(
-                r"^\[gcode_macro G29\].*?(?=^\[gcode_macro )",
-                G29_HIJACK + "\n\n",
-                cfg,
-                count=1,
-                flags=re.MULTILINE | re.DOTALL,
-            )
+        # 1 & 2. Hijack [gcode_macro G29] and
+        # [gcode_macro BED_MESH_CALIBRATE_START_PRINT]. _hijack_macro is
+        # idempotent and handles the K2 Pro case where the stock macro ships
+        # commented out (which the old in-place-only regex crashed on).
+        cfg, g29_changed = _hijack_macro(cfg, "G29", G29_HIJACK)
+        if g29_changed:
             self.log("gcode_macro.cfg: G29 hijacked", "ok")
-
-        # 2. Hijack [gcode_macro BED_MESH_CALIBRATE_START_PRINT]
-        m = re.search(
-            r"^\[gcode_macro BED_MESH_CALIBRATE_START_PRINT\].*?(?=^\[gcode_macro )",
-            cfg, re.MULTILINE | re.DOTALL)
-        if m and "Hijacked by KAMP-K2" not in m.group(0):
-            cfg = re.sub(
-                r"^\[gcode_macro BED_MESH_CALIBRATE_START_PRINT\].*?"
-                r"(?=^\[gcode_macro )",
-                BMCSP_HIJACK + "\n\n",
-                cfg,
-                count=1,
-                flags=re.MULTILINE | re.DOTALL,
-            )
-            self.log("gcode_macro.cfg: BED_MESH_CALIBRATE_START_PRINT hijacked", "ok")
+        cfg, bmcsp_changed = _hijack_macro(
+            cfg, "BED_MESH_CALIBRATE_START_PRINT", BMCSP_HIJACK)
+        if bmcsp_changed:
+            self.log("gcode_macro.cfg: BED_MESH_CALIBRATE_START_PRINT "
+                     "hijacked", "ok")
 
         # 3. Insert KAMP mesh call + LINE_PURGE into START_PRINT if not
         #    already.
@@ -1093,7 +1154,14 @@ class Installer:
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Install KAMP-K2 on a Creality K2 printer over SSH.")
-    ap.add_argument("--host", required=True, help="Printer IP address")
+    ap.add_argument("--host", help="Printer IP address (required unless --local)")
+    ap.add_argument("--local", action="store_true",
+                    help="Run directly ON the printer, no SSH/paramiko/venv. "
+                         "Use this to re-apply KAMP after a Creality firmware "
+                         "update (which reverts the stock configs): clone or "
+                         "`git pull` this repo on the printer, then run "
+                         "`python3 install_k2.py --local`. Idempotent - safe "
+                         "to re-run.")
     ap.add_argument("--user", default="root", help="SSH user (default: root)")
     ap.add_argument("--password", default="creality_2024",
                     help="SSH password (default: creality_2024)")
@@ -1131,11 +1199,14 @@ def main() -> None:
                          "backups; this copy survives. --revert uses it as "
                          "a fallback when the printer has no backup.")
     args = ap.parse_args()
+    if not args.local and not args.host:
+        ap.error("--host is required unless --local is given")
 
-    inst = Installer(args.host, args.user, args.password,
+    inst = Installer(args.host or "local", args.user, args.password,
                      dry_run=args.dry_run, verbose=args.verbose,
                      board=args.board,
-                     local_backup_dir=args.local_backup_dir)
+                     local_backup_dir=args.local_backup_dir,
+                     local=args.local)
     try:
         inst.connect()
 

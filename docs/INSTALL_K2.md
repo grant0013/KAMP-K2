@@ -2,6 +2,8 @@
 
 If you want to understand what the installer is doing, or install by hand, the nine steps below replicate it exactly. If you just want to get going, run `python install_k2.py --host 192.168.x.x` and skip this doc.
 
+To re-apply after a firmware update straight from the printer (no paramiko/venv needed - avoids the `ensurepip` failure on the printer's Python), clone/pull this repo on the printer and run `python3 install_k2.py --local`. It's idempotent.
+
 ## Prerequisites
 
 - SSH access to the printer as `root`. Stock Creality root password is `creality_2024`. If yours has been rotated by a firmware update, find the current one — look for it on the touchscreen recovery menu or ask Creality support.
