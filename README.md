@@ -77,6 +77,18 @@ Replace `192.168.x.x` with your printer's IP. The installer uses the Creality st
 
 See [`docs/INSTALL_K2.md`](docs/INSTALL_K2.md) for the step-by-step the installer performs (useful if you want to do it manually, or understand what's being changed).
 
+### Re-applying after a Creality firmware update
+
+Firmware updates revert the stock configs (`printer.cfg`, `gcode_macro.cfg`), so KAMP-K2 has to be re-applied afterwards. The printer's cut-down Python has no working `pip`/`venv`, so `install.sh` can't run on the printer itself (it fails at `ensurepip`). Run the installer **directly on the printer** with `--local` instead - no SSH, paramiko or venv:
+
+```sh
+ssh root@PRINTER_IP
+cd ~/KAMP-K2 && git pull     # first time: git clone https://github.com/grant0013/KAMP-K2
+python3 install_k2.py --local
+```
+
+`--local` is idempotent (safe to re-run): it re-copies the KAMP files, re-applies the config patches, and restarts Klippy. From your PC, the normal `--host` form still works.
+
 ## Compatibility
 
 Two different boards in the K2 family behave differently:
